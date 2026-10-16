@@ -293,6 +293,14 @@ class PlaybackController @Inject constructor(
         const val COUNTDOWN_TICK_MS = 100L
     }
 
+
+    /** Start streaming captured app playback into the shared virtual-mic PCM pipeline. */
+    fun setLivePlaybackCapture(source: io.mo.glassmic.audio.LivePlaybackCaptureSource) {
+        publisher.setSource(source)
+        publisher.setPaused(false)
+        GlassLog.b("Playback") { "Live playback capture source enabled" }
+    }
+
     /** 切回真实麦克风：释放当前 file source，运行态置 REAL_MIC，清空持久化选中。 */
     suspend fun setRealMic() = withContext(Dispatchers.IO) {
         publisher.setPaused(false)
