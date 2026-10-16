@@ -93,6 +93,12 @@
                 android:value="virtual_mic_audio_bridge" />
         </service>
 
+        <!-- ============ Live playback capture (user-consented MediaProjection) ============ -->
+        <service
+            android:name=".service.LivePlaybackCaptureService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
         <!-- ============ 悬浮窗服务 ============ -->
         <service
             android:name=".service.FloatingWindowService"
