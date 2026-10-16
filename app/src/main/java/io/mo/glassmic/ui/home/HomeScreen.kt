@@ -57,6 +57,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.media.projection.MediaProjectionManager
 import io.mo.glassmic.R
 import io.mo.glassmic.data.runtime.HookActivity
 import io.mo.glassmic.proto.PlaybackPolicy
@@ -85,6 +88,11 @@ fun HomeScreen(
 ) {
     val state by vm.state.collectAsState()
     val policyStatus by vm.policyStatus.collectAsState()
+    val liveCaptureActive by vm.liveCaptureActive.collectAsState()
+    val context = LocalContext.current
+    val liveCaptureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        vm.startLivePlaybackCapture(result.resultCode, result.data)
+    }
     val t = glass
 
     GlassPage {
@@ -144,6 +152,32 @@ fun HomeScreen(
 
             // ---- 主开关 ----
             MicHero(state = state, onToggle = { vm.toggleMaster(!state.running) })
+
+            // ---- Live app audio capture (experimental) ----
+            GlassCard(
+                modifier = Modifier.fillMaxWidth(),
+                radius = 22.dp,
+                onClick = {
+                    if (liveCaptureActive) {
+                        vm.stopLivePlaybackCapture()
+                    } else {
+                        val manager = context.getSystemService(MediaProjectionManager::class.java)
+                        liveCaptureLauncher.launch(manager.createScreenCaptureIntent())
+                    }
+                }
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text("Live app audio", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (liveCaptureActive) "Capturing playback · tap to stop"
+                            else "Send capturable media audio to the virtual mic",
+                            fontSize = 12.sp, color = t.ink3, lineHeight = 16.sp
+                        )
+                    }
+                    Text(if (liveCaptureActive) "STOP" else "START", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (liveCaptureActive) t.err else t.primary)
+                }
+            }
 
             // ---- 当前音源 ----
             if (state.running) {
