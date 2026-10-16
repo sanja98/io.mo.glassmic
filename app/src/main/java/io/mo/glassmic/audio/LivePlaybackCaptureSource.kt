@@ -24,6 +24,8 @@ class LivePlaybackCaptureSource(
     private val chunks = ArrayBlockingQueue<ByteArray>(12)
     @Volatile private var recorder: AudioRecord? = null
     private var captureThread: Thread? = null
+    private var pending: ByteArray? = null
+    private var pendingOffset = 0
 
     fun start(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || !running.compareAndSet(false, true)) return false
@@ -70,17 +72,24 @@ class LivePlaybackCaptureSource(
     }
 
     override suspend fun read(out: ByteBuffer, sampleRate: Int, channels: Int): Int {
-        val chunk = chunks.poll() ?: return 0
-        val samples = chunk.size / 4
-        val maxSamples = out.remaining() / 2
-        val takeSamples = minOf(samples, maxSamples)
-        var i = 0
+        var chunk = pending
+        if (chunk == null || pendingOffset >= chunk.size) {
+            chunk = chunks.poll() ?: return 0
+            pending = chunk
+            pendingOffset = 0
+        }
+        val availableSamples = (chunk.size - pendingOffset) / 4
+        val takeSamples = minOf(availableSamples, out.remaining() / 2)
         repeat(takeSamples) {
+            val i = pendingOffset
             val left = ((chunk[i].toInt() and 0xff) or (chunk[i + 1].toInt() shl 8)).toShort().toInt()
             val right = ((chunk[i + 2].toInt() and 0xff) or (chunk[i + 3].toInt() shl 8)).toShort().toInt()
-            out.putShort(((left + right) / 2).toShort())
-            i += 4
+            val mono = ((left + right) / 2).toShort().toInt()
+            out.put((mono and 0xff).toByte())
+            out.put(((mono shr 8) and 0xff).toByte())
+            pendingOffset += 4
         }
+        if (pendingOffset >= chunk.size) { pending = null; pendingOffset = 0 }
         return takeSamples * 2
     }
 
@@ -92,6 +101,8 @@ class LivePlaybackCaptureSource(
         captureThread?.join(250)
         captureThread = null
         chunks.clear()
+        pending = null
+        pendingOffset = 0
         runCatching { projection.stop() }
     }
 
