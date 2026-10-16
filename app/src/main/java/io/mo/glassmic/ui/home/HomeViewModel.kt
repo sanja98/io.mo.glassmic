@@ -1,6 +1,9 @@
 package io.mo.glassmic.ui.home
 
 import android.content.Context
+import android.content.Intent
+import android.media.projection.MediaProjectionManager
+import android.app.Activity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -22,6 +25,10 @@ import io.mo.glassmic.proto.PlaybackPolicy as ProtoPolicy
 import io.mo.glassmic.proto.ScopeMode as ProtoScope
 import io.mo.glassmic.service.FloatingWindowService
 import io.mo.glassmic.service.GlassForegroundService
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -73,6 +80,8 @@ class HomeViewModel @Inject constructor(
     audioStatsRepo: AudioStatsRepository
 ) : ViewModel() {
     val policyStatus = audioPolicy.status
+    private val _liveCaptureActive = MutableStateFlow(false)
+    val liveCaptureActive = _liveCaptureActive.asStateFlow()
 
     private val groupsFlow = audioDao.observeGroups()
     private val clipsFlow = audioDao.observeAllClips()
@@ -149,6 +158,34 @@ class HomeViewModel @Inject constructor(
             interceptLastPkg = stats.lastPackage
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, HomeUiState())
+
+    fun startLivePlaybackCapture(resultCode: Int, data: Intent?) {
+        if (resultCode != Activity.RESULT_OK || data == null) return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val manager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                val projection = manager.getMediaProjection(resultCode, data)
+                val source = io.mo.glassmic.audio.LivePlaybackCaptureSource(projection)
+                if (source.start()) {
+                    playback.setLivePlaybackCapture(source)
+                    _liveCaptureActive.value = true
+                } else {
+                    source.release()
+                    _liveCaptureActive.value = false
+                }
+            }.onFailure {
+                _liveCaptureActive.value = false
+                io.mo.glassmic.log.GlassLog.b("Playback") { "Live playback capture failed: ${it.message}" }
+            }
+        }
+    }
+
+    fun stopLivePlaybackCapture() {
+        viewModelScope.launch(Dispatchers.IO) {
+            playback.setRealMic()
+            _liveCaptureActive.value = false
+        }
+    }
 
     fun togglePause() {
         playback.togglePause()
