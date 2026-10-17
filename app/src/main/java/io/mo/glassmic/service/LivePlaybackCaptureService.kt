@@ -17,7 +17,10 @@ import io.mo.glassmic.R
 import io.mo.glassmic.audio.LivePlaybackCaptureSource
 import io.mo.glassmic.data.audio.PlaybackController
 import io.mo.glassmic.log.GlassLog
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -29,6 +32,7 @@ import javax.inject.Inject
 class LivePlaybackCaptureService : LifecycleService() {
     @Inject lateinit var playback: PlaybackController
     private var source: LivePlaybackCaptureSource? = null
+    private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onBind(intent: Intent): IBinder? {
         super.onBind(intent)
@@ -62,6 +66,7 @@ class LivePlaybackCaptureService : LifecycleService() {
             try {
                 val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                 val projection = manager.getMediaProjection(resultCode, resultData)
+                    ?: throw IllegalStateException("Android did not grant a media projection")
                 val capture = LivePlaybackCaptureSource(projection)
                 if (!capture.start()) {
                     capture.release()
@@ -82,7 +87,7 @@ class LivePlaybackCaptureService : LifecycleService() {
 
     override fun onDestroy() {
         source = null // SharedPcmPublisher releases the previous source when setRealMic runs.
-        lifecycleScope.launch(Dispatchers.IO) { runCatching { playback.setRealMic() } }
+        cleanupScope.launch { runCatching { playback.setRealMic() } }
         super.onDestroy()
     }
 
